@@ -8,6 +8,8 @@ import xml.dom.minidom
 import os
 from Config import Config
 import sys
+import math
+import numpy as np
 
 cfg = Config()
 
@@ -50,17 +52,20 @@ def genBbox(path, w, h, infos):
     #获取缩放因子
     factor = cfg.min_size * 1.0 / min(w, h)
     new_infos = []
-    with open(path, 'w') as fw:
-        for item in infos:
-            cls = item[0]
-            xmin = int(item[1] * 1.0 * factor)
-            ymin = int(item[2] * 1.0 * factor)
-            xmax = int(item[3] * 1.0 * factor)
-            ymax = int(item[4] * 1.0 * factor)
-            info = [cls, xmin, ymin, xmax, ymax]
-            new_infos.append(info)
-            line = ','.join(map(str, info)) + '\n'
-            fw.write(line)
+    for item in infos:
+        cls = item[0]
+        xmin = int(item[1] * 1.0 * factor)
+        ymin = int(item[2] * 1.0 * factor)
+        xmax = int(item[3] * 1.0 * factor)
+        ymax = int(item[4] * 1.0 * factor)
+        x = math.floor((xmax + xmin) / 2)
+        y = math.floor((ymax + ymin) / 2)
+        gw = xmax - xmin + 1
+        gh = ymax - ymin + 1
+        cls = cfg.cls_label.index(cls)
+        info = [cls, x, y, gw, gh]
+        new_infos.append(info)
+    np.save(path, np.array(new_infos))
     return new_infos
 
 def calcIOU(box1, box2):
@@ -70,8 +75,16 @@ def calcIOU(box1, box2):
     :param box2: 框2
     :return:
     '''
-    x1, y1, x2, y2 = box1
-    x3, y3, x4, y4 = box2
+    xa, ya, wa, ha = box1
+    xb, yb, wb, hb = box2
+    x1 = xa - wa // 2
+    y1 = ya - ha // 2
+    x2 = x1 + wa
+    y2 = y1 + ha
+    x3 = xb - wb // 2
+    y3 = yb - hb // 2
+    x4 = x3 + wb
+    y4 = y3 + hb
     xmin = max(x1, x3)
     ymin = max(y1, y3)
     xmax = min(x2, x4)
@@ -104,38 +117,39 @@ def checkLabel(anchors, w, h, infos):
 
     # 标记超出图片范围的anchor
     for i in range(len(anchors)):
-        _, _, xmin, ymin, xmax, ymax = anchors[i]
-        if xmin < 0 or ymin < 0 or xmax > w or ymax > h:
+        ax, ay, aw, ah = anchors[i]
+        if ax - aw // 2 < 0 or ay - ah // 2 < 0 or ax + aw // 2 - 1 > w or ay + ah // 2 - 1 > h:
             anchors[i].extend([-1, -1, -1, -1])
             anchors[i].append(-1)
             Set.remove(i)
     # 标记每个目标框对应的最大iou的anchor
     for info in infos:
-        _, x1, y1, x2, y2 = info
+        _, gx, gy, gw, gh = info
         tmp_iou = -1
         index = -1
         for i in Set:
-            _, _, xmin, ymin, xmax, ymax = anchors[i]
-            iou = calcIOU((x1, y1, x2, y2), (xmin, ymin, xmax, ymax))
+            ax, ay, aw, ah = anchors[i]
+            iou = calcIOU((gx, gy, gw, gh), (ax, ay, aw, ah))
             if iou != 0 and iou > tmp_iou:
                 index = i
         if index != -1:
+            anchors[index].extend([gx, gy, gw, gh])
             anchors[index].append(1)
             Set.remove(index)
             Set_pos.add(index)
     # 根据iou标记剩余anchor
     for i in Set:
-        _, _, xmin, ymin, xmax, ymax = anchors[i]
+        ax, ay, aw, ah = anchors[i]
         flag = -1
         max_iou = -1
         bbox = None
         for info in infos:
-            _, x1, y1, x2, y2 = info
-            iou = calcIOU((xmin, ymin, xmax, ymax), (x1, y1, x2, y2))
+            _, gx, gy, gw, gh = info
+            iou = calcIOU((gx, gy, gw, gh), (ax, ay, aw, ah))
             # print(xmin, ymin, xmax, ymax, x1, y1, x2, y2, iou)
             if iou >=0.7 and iou > max_iou:
                 flag = 1
-                bbox = [x1, y1, x2, y2]
+                bbox = [gx, gy, gw, gh]
             elif iou >= 0.3:
                 flag = 0
         # 大于0.7正样本，小于0.3负样本，其余忽略
@@ -152,10 +166,10 @@ def checkLabel(anchors, w, h, infos):
             anchors[i].append(0)
 
     ####这是原文的做法，但我发现正样本也太少了，就改了改
-    # 控制正负样本的量和比例
+    # # 控制正负样本的量和比例
     # delta = len(Set_pos) - 128
-    # if delta > 0:
-    #     print(len(Set_pos))
+    # # if delta > 0:
+    # #     print(len(Set_pos))
     # if delta > 0:
     #     list_pos = list(Set_pos)
     #     for i in range(delta):
@@ -173,7 +187,6 @@ def checkLabel(anchors, w, h, infos):
     delta = len(Set_pos) - 128
     if delta > 0:
         print(len(Set_pos))
-    if delta > 0:
         list_pos = list(Set_pos)
         for i in range(delta):
             anchors[list_pos[i]][-1] = -1
@@ -185,6 +198,19 @@ def checkLabel(anchors, w, h, infos):
         list_neg = list(Set_neg)
         for i in range(delta):
             anchors[list_neg[i]][-1] = -1
+
+
+def genRC(width, heigth):
+    '''
+    用于求不用pool的模型
+    :param width:
+    :param heigth:
+    :return:
+    '''
+    for i in range(4):
+        width = (width - 1) // 2 + 1
+        heigth = (heigth - 1) // 2 + 1
+    return width, heigth
 
 
 
@@ -204,25 +230,23 @@ def genLabel(path, w, h, infos):
     width, height = int(w * factor), int(h * factor)
 
     # 获取特征图层的尺寸
-    r, c = int(height*1.0/32), int(width*1.0/32)
+    r, c = genRC(width, height)
     anchors = []
     for i in range(r):
         for j in range(c):
             # 获取每个anchor的中心点坐标
-            y = int(height * 0.5 / r * (i * 2 + 1))
-            x = int(width * 0.5 / c * (j * 2 + 1))
+            y = 8 * (2 * i + 1)
+            x = 8 * (2 * j + 1)
             for (aw, ah) in cfg.anchor_size:
                 # 获取anchor的两点坐标
-                xmin = x - aw // 2
-                ymin = y - ah // 2
-                xmax = x + aw // 2
-                ymax = y + ah // 2
-                anchors.append([x, y, xmin, ymin, xmax, ymax])
+                anchors.append([x, y, aw, ah])
     checkLabel(anchors, width, height, infos)
-    with open(path, 'w') as fw:
-        for anchor in anchors:
-            line = ','.join(map(str, anchor)) + '\n'
-            fw.write(line)
+    anchors = np.array(anchors)
+    np.save(path, anchors)
+    # with open(path, 'w') as fw:
+    #     for anchor in anchors:
+    #         line = ','.join(map(str, anchor)) + '\n'
+    #         fw.write(line)
 
 
 
@@ -246,8 +270,8 @@ def genDataset():
         bar('正在构建：', num, total)
         num += 1
         name = ann.split('.')[0]
-        label_file = os.path.join(label_path, name + '.txt')
-        bbox_file = os.path.join(bbox_path, name + '.txt')
+        label_file = os.path.join(label_path, name + '.npy')
+        bbox_file = os.path.join(bbox_path, name + '.npy')
         w, h, infos = loadXml(os.path.join(anno_path, ann))
         new_infos = genBbox(bbox_file, w, h, infos)
         genLabel(label_file, w, h, new_infos)
@@ -267,8 +291,8 @@ def genDataset():
         bar('正在构建：', num, total)
         num += 1
         name = ann.split('.')[0]
-        label_file = os.path.join(label_path, name + '.txt')
-        bbox_file = os.path.join(bbox_path, name + '.txt')
+        label_file = os.path.join(label_path, name + '.npy')
+        bbox_file = os.path.join(bbox_path, name + '.npy')
         w, h, infos = loadXml(os.path.join(anno_path, ann))
         new_infos = genBbox(bbox_file, w, h, infos)
         genLabel(label_file, w, h, new_infos)

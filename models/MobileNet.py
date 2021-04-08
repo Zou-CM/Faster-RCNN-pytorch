@@ -4,18 +4,17 @@
 # @Email   : zou-cm@outlook.com
 # @File    : MobileNet.py
 
-from torchvision.models import mobilenet_v2
+from torchvision.models.mobilenet import MobileNetV2
 import torch.nn as nn
 import torch.functional as F
 
-class MobileNet(nn.Module):
+
+
+class MobileNet(MobileNetV2):
     def __init__(self, pretrained):
         super(MobileNet, self).__init__()
-        self.feature = mobilenet_v2(pretrained=pretrained)
-        # 把全链接分类那一块置空
-        self.feature.classifier = nn.Sequential()
 
-    def forward(self, x):
+    def _forward_impl(self, x):
         return self.feature(x)
 
 
