@@ -123,4 +123,4 @@ def train(pretrained):
 
 
 if __name__ == '__main__':
-    train(True)
+    train(False)

@@ -47,7 +47,7 @@ class RPN(nn.Module):
         x = self.feature_layer(x)
         x = self.conv_1(x)
         x = nn.ReLU()(x)
-        # reshape是为了更方便计算损失
+        # reshape是为了更方便计算损失,reshape之前要转置，因为torch通道是第二个维度
         cls = self.conv_cls(x)
         cls = cls.permute(0, 2, 3, 1)
         cls = torch.reshape(cls, (-1, 2))

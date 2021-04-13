@@ -52,6 +52,7 @@ def genBbox(path, w, h, infos):
     #获取缩放因子
     factor = cfg.min_size * 1.0 / min(w, h)
     new_infos = []
+    save_infos = []
     for item in infos:
         cls = item[0]
         xmin = int(item[1] * 1.0 * factor)
@@ -64,8 +65,10 @@ def genBbox(path, w, h, infos):
         gh = ymax - ymin + 1
         cls = cfg.cls_label.index(cls)
         info = [cls, x, y, gw, gh]
+        save_info = [cls, xmin, ymin, xmax, ymax]
+        save_infos.append(save_info)
         new_infos.append(info)
-    np.save(path, np.array(new_infos))
+    np.save(path, np.array(save_infos))
     return new_infos
 
 def calcIOU(box1, box2):

@@ -14,6 +14,7 @@ class Config():
                  'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorbike',
                  'person', 'pottedplant', 'sheep', 'sofa', 'train',
                  'tvmonitor', 'cat'] #VOC所有标签
+    class_num = 20
     lr = 0.0001
     epoch_RPN = 10
     RPN_checkpoints = './checkpoints/RPN/model.pth'
